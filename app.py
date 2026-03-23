@@ -153,10 +153,10 @@ if not st.session_state.messages:
     st.markdown(
         """
         <div style="text-align:center; color:#666; margin-top:3rem;">
-            <p>👋 Hello! I'm your personal chef. Try asking me:</p>
-            <p><em>"How do I make a classic carbonara?"</em></p>
-            <p><em>"What can I substitute for buttermilk?"</em></p>
-            <p><em>"Plan a healthy week of meals for two."</em></p>
+            <p>👋 ¡Hola! Soy tu chef personal. Prueba preguntándome:</p>
+            <p><em>"¿Cómo hago una paella valenciana?"</em></p>
+            <p><em>"¿Qué puedo usar como sustituto del pimentón?"</em></p>
+            <p><em>"Planifica una semana de comidas saludables para dos personas."</em></p>
         </div>
         """,
         unsafe_allow_html=True,

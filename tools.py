@@ -25,6 +25,7 @@ _HEADERS = {
     )
 }
 _MAX_CHARS = 6000  # keep context manageable
+_MAX_RETRIES = 3
 
 
 @tool
@@ -36,7 +37,13 @@ def web_search(query: str) -> str:
     Args:
         query: The search query.
     """
-    return _duckduckgo.run(f"{query} ({_SITE_FILTER})")
+    last_exc = None
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            return _duckduckgo.run(f"{query} ({_SITE_FILTER})")
+        except Exception as exc:
+            last_exc = exc
+    return f"Search failed after {_MAX_RETRIES} attempts: {last_exc}"
 
 
 @tool
@@ -48,11 +55,16 @@ def fetch_page(url: str) -> str:
     Args:
         url: The full URL of the recipe page to fetch.
     """
-    try:
-        resp = requests.get(url, headers=_HEADERS, timeout=10)
-        resp.raise_for_status()
-    except Exception as exc:
-        return f"Error fetching page: {exc}"
+    last_exc = None
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=10)
+            resp.raise_for_status()
+            break
+        except Exception as exc:
+            last_exc = exc
+            if attempt == _MAX_RETRIES:
+                return f"Error fetching page after {_MAX_RETRIES} attempts: {last_exc}"
 
     soup = BeautifulSoup(resp.text, "html.parser")
 
