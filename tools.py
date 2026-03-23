@@ -1,38 +1,69 @@
 # tools.py — Custom tools for the Personal Chef AI agent
 # Each tool is clearly named to showcase LangChain agent tool-use.
 
+import re
+import requests
+from bs4 import BeautifulSoup
 from langchain.tools import tool
 from langchain_community.tools import DuckDuckGoSearchRun
 
-# Web search tool — no API key required
-web_search = DuckDuckGoSearchRun(
-    name="web_search",
-    description=(
-        "Search the web for recipes, cooking techniques, or food information. "
-        "Always use this tool when the user asks for a recipe. "
-        "The results include URLs — extract the source URL and cite it in your response."
-    ),
-)
+# Allowed recipe domains
+_ALLOWED_DOMAINS = [
+    "recetasderechupete.com",
+    "directoalpaladar.es",
+    "pequerecetas.es",
+]
+_SITE_FILTER = " OR ".join(f"site:{d}" for d in _ALLOWED_DOMAINS)
+
+_duckduckgo = DuckDuckGoSearchRun()
+
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    )
+}
+_MAX_CHARS = 6000  # keep context manageable
 
 
 @tool
-def get_recipe(dish_name: str) -> str:
-    """
-    Retrieve a full recipe for a specific dish.
-    Use this whenever the user asks how to cook something or requests a recipe.
+def web_search(query: str) -> str:
+    """Search the web for recipes, cooking techniques, or food information.
+    Always use this tool first when the user asks for a recipe.
+    The results include URLs — pick the best URL and call fetch_page with it.
 
     Args:
-        dish_name: The name of the dish to get the recipe for.
+        query: The search query.
     """
-    return (
-        f"Provide a complete recipe for '{dish_name}'. Include:\n"
-        "- A short, appetizing description of the dish\n"
-        "- Full ingredients list with exact quantities\n"
-        "- Clear step-by-step preparation instructions\n"
-        "- Estimated prep and cook time\n"
-        "- Serving size and any useful tips\n"
-        "Format the response in clean, easy-to-read markdown."
-    )
+    return _duckduckgo.run(f"{query} ({_SITE_FILTER})")
+
+
+@tool
+def fetch_page(url: str) -> str:
+    """Fetch the full text content of a recipe page from a URL.
+    Use this after web_search to retrieve the actual recipe instead of guessing.
+    Only fetch URLs from trusted recipe sites returned by web_search.
+
+    Args:
+        url: The full URL of the recipe page to fetch.
+    """
+    try:
+        resp = requests.get(url, headers=_HEADERS, timeout=10)
+        resp.raise_for_status()
+    except Exception as exc:
+        return f"Error fetching page: {exc}"
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # Remove nav, ads, scripts, styles
+    for tag in soup(["script", "style", "nav", "footer", "aside", "header", "form"]):
+        tag.decompose()
+
+    text = soup.get_text(separator="\n")
+    # Collapse blank lines
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text[:_MAX_CHARS]
 
 
 @tool

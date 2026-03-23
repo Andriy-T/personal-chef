@@ -6,3 +6,5 @@ streamlit>=1.38.0
 python-dotenv>=1.0.0
 duckduckgo-search>=6.0.0
 ddgs
+requests>=2.32.0
+beautifulsoup4>=4.12.0

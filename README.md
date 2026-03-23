@@ -48,7 +48,7 @@ personal-chef/
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/your-username/personal-chef.git
+git clone https://github.com/Andriy-T/personal-chef.git
 cd personal-chef
 
 # 2. Create a virtual environment

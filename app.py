@@ -69,6 +69,27 @@ st.markdown(
         section[data-testid="stSidebar"] {
             background-color: #16213E;
         }
+
+        /* ── Tool / thinking indicator ── */
+        .tool-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #FF6B35;
+            font-style: italic;
+            padding: 6px 0;
+            font-size: 0.9rem;
+        }
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 107, 53, 0.3);
+            border-top-color: #FF6B35;
+            border-radius: 50%;
+            animation: spin 0.75s linear infinite;
+            flex-shrink: 0;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
     """,
     unsafe_allow_html=True,
@@ -141,6 +162,23 @@ if not st.session_state.messages:
         unsafe_allow_html=True,
     )
 
+# ── Tool label helper ─────────────────────────────────────────────────────────
+def _tool_label(tool_name: str, args: dict) -> str:
+    """Return a human-readable HTML label for a tool call."""
+    if tool_name == "web_search":
+        query = args.get("query", "")
+        return f'🔍 Buscando: <em>"{query}"</em>'
+    if tool_name == "get_recipe":
+        return "📖 Preparando receta…"
+    if tool_name == "get_ingredient_substitutes":
+        ingredient = args.get("ingredient", "")
+        suffix = f" para <em>{ingredient}</em>" if ingredient else ""
+        return f"🔄 Buscando sustitutos{suffix}…"
+    if tool_name == "create_meal_plan":
+        return "📅 Creando plan de comidas…"
+    return f"🔧 Ejecutando <em>{tool_name}</em>…"
+
+
 # ── Chat input ────────────────────────────────────────────────────────────────
 user_input = st.chat_input("Ask your chef anything…")
 
@@ -152,20 +190,56 @@ if user_input:
 
     # Stream the agent's response
     with st.chat_message("assistant"):
+        tool_slot = st.empty()   # spinner / tool status
+        text_slot = st.empty()   # streaming text
+        response_text = ""
+
+        # Show initial "thinking" indicator immediately
+        tool_slot.markdown(
+            '<div class="tool-indicator">'
+            '<div class="spinner"></div><span>Pensando…</span>'
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
         try:
-            response_text = st.write_stream(
-                stream_agent_response(
-                    st.session_state.agent,
-                    user_input,
-                    st.session_state.thread_id,
-                )
-            )
+            for event in stream_agent_response(
+                st.session_state.agent,
+                user_input,
+                st.session_state.thread_id,
+            ):
+                kind = event[0]
+
+                if kind == "tool_start":
+                    _, tool_name, tool_args = event
+                    label = _tool_label(tool_name, tool_args)
+                    tool_slot.markdown(
+                        f'<div class="tool-indicator">'
+                        f'<div class="spinner"></div><span>{label}</span>'
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                elif kind == "tool_end":
+                    # Keep spinner visible until text starts flowing
+                    pass
+
+                elif kind == "text":
+                    tool_slot.empty()  # hide spinner once text arrives
+                    response_text += event[1]
+                    text_slot.markdown(response_text + "▌")
+
+            # Finalise — remove typing cursor
+            text_slot.markdown(response_text)
+            tool_slot.empty()
+
         except Exception as e:
+            tool_slot.empty()
             error_msg = (
                 "⚠️ Something went wrong. Please check your API key and try again.\n\n"
                 f"*Error: {e}*"
             )
-            st.markdown(error_msg)
+            text_slot.markdown(error_msg)
             response_text = error_msg
 
     # Save the assistant reply to history
