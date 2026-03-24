@@ -168,8 +168,9 @@ def _tool_label(tool_name: str, args: dict) -> str:
     if tool_name == "web_search":
         query = args.get("query", "")
         return f'🔍 Buscando: <em>"{query}"</em>'
-    if tool_name == "get_recipe":
-        return "📖 Preparando receta…"
+    if tool_name == "fetch_page":
+        url = args.get("url", "")
+        return f'📖 Leyendo página: <em>{url}</em>'
     if tool_name == "get_ingredient_substitutes":
         ingredient = args.get("ingredient", "")
         suffix = f" para <em>{ingredient}</em>" if ingredient else ""

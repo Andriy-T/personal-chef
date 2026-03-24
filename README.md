@@ -5,11 +5,6 @@ Ask it for recipes, ingredient substitutions, or a full weekly meal plan.
 
 > Portfolio project demonstrating LangChain AI Agent capabilities with tool-use and conversation memory.
 
-<!-- Replace with your own demo GIF once deployed -->
-<!-- ![Demo](demo.gif) -->
-
-**[Live Demo →](https://your-app.streamlit.app)** *(update after deployment)*
-
 ---
 
 ## Features
