@@ -88,7 +88,7 @@ cp .env.example .env
 streamlit run app.py
 ```
 
-Then open [http://localhost:8501](http://localhost:8501) in your browser.
+Then open [http://localhost:8501](http://localhost:8501) in your browser (Chrome recommended).
 Enter your OpenAI API key in the sidebar and start chatting.
 
 ## Deploy to Streamlit Community Cloud
