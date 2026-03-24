@@ -93,6 +93,8 @@ def stream_agent_response(agent, user_input: str, thread_id: str):
         if node == "agent" and tool_calls:
             for tc in tool_calls:
                 name = tc["name"] if isinstance(tc, dict) else getattr(tc, "name", "")
+                if not name:
+                    continue  # skip arg-only streaming chunks (name arrives in first chunk only)
                 args = tc["args"] if isinstance(tc, dict) else getattr(tc, "args", {})
                 tc_id = tc["id"] if isinstance(tc, dict) else getattr(tc, "id", "")
                 pending_tools[tc_id] = name
