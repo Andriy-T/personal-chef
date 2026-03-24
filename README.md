@@ -1,18 +1,44 @@
 # 🍳 Personal Chef AI
 
 An AI-powered personal chef built with **LangChain** and **Streamlit**.
-Ask it for recipes, ingredient substitutions, or a full weekly meal plan.
+Ask it for recipes, ingredient substitutions, or a full weekly meal plan — by typing or speaking.
 
-> Portfolio project demonstrating LangChain AI Agent capabilities with tool-use and conversation memory.
+> Portfolio project demonstrating the three core pillars of modern AI agent development:
+> **tool use**, **conversation memory**, and **multimodality**.
+
+---
+
+## Agent Pillars
+
+### 1. Tool Use
+The agent runs a ReAct loop and calls tools autonomously to ground its answers in real data:
+
+| Tool | Purpose |
+|------|---------|
+| `web_search` | DuckDuckGo search for recipes and food facts |
+| `fetch_page` | Reads the full content of a recipe page |
+| `get_ingredient_substitutes` | Suggests swaps for missing or restricted ingredients |
+| `create_meal_plan` | Builds a personalised weekly menu |
+
+The LLM decides *when* and *how* to call each tool — it never invents a recipe from memory.
+
+### 2. Conversation Memory
+Powered by LangGraph's `InMemorySaver` checkpointer. The agent retains full conversation history within a session, so you can ask follow-up questions like *"make it vegetarian"* or *"how long does it keep in the fridge?"* without repeating context.
+
+### 3. Multimodality
+Two input modes are supported side by side:
+
+- **Text** — standard chat input
+- **Voice** — record a question with the built-in mic widget; the audio is transcribed by OpenAI Whisper (`whisper-1`) and fed into the same agent pipeline
 
 ---
 
 ## Features
 
-- **Recipe lookup** — step-by-step instructions for any dish
+- **Recipe lookup** — step-by-step instructions sourced from real recipe sites
 - **Ingredient substitutes** — swap ingredients based on what you have or dietary needs
 - **Meal planning** — personalised weekly menus with a shopping list
-- **Conversation memory** — the chef remembers context across the chat session
+- **Voice input** — speak your question, get a chef's answer
 - **Bring your own key** — no API key is stored; you provide it at runtime
 
 ## Tech Stack
@@ -20,7 +46,8 @@ Ask it for recipes, ingredient substitutions, or a full weekly meal plan.
 | Layer | Technology |
 |-------|-----------|
 | Agent | LangChain + LangGraph (`create_react_agent`) |
-| LLM | OpenAI GPT-4o-mini |
+| LLM | OpenAI GPT-5.4-nano |
+| Speech-to-text | OpenAI Whisper (`whisper-1`) |
 | UI | Streamlit |
 | Config | python-dotenv |
 | Deployment | Streamlit Community Cloud |

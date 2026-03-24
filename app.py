@@ -2,9 +2,13 @@
 # Single-page chatbot interface inspired by Microsoft's Streamlit UI Template App 3.
 # Custom CSS is injected directly — no external stylesheet required.
 
+import io
 import os
+
+import openai
 import streamlit as st
 from dotenv import load_dotenv
+
 from agent import create_chef_agent, stream_agent_response
 
 # Load .env for local development (no-op in production / Streamlit Cloud)
@@ -180,8 +184,27 @@ def _tool_label(tool_name: str, args: dict) -> str:
     return f"🔧 Ejecutando <em>{tool_name}</em>…"
 
 
-# ── Chat input ────────────────────────────────────────────────────────────────
+# ── Audio transcription helper ────────────────────────────────────────────────
+def _transcribe(audio_bytes: bytes, api_key: str) -> str:
+    client = openai.OpenAI(api_key=api_key)
+    buf = io.BytesIO(audio_bytes)
+    buf.name = "audio.wav"
+    return client.audio.transcriptions.create(model="whisper-1", file=buf).text
+
+
+# ── Inputs: text + audio ──────────────────────────────────────────────────────
 user_input = st.chat_input("Ask your chef anything…")
+
+# Audio recorder — appears below the chat bar
+audio_value = st.audio_input("🎤 Or record your question", key="audio_recorder")
+
+if audio_value and audio_value != st.session_state.get("_last_audio"):
+    st.session_state["_last_audio"] = audio_value
+    with st.spinner("Transcribing…"):
+        try:
+            user_input = _transcribe(audio_value.read(), openai_key)
+        except Exception as e:
+            st.error(f"Transcription failed: {e}")
 
 if user_input:
     # Show the user's message immediately
