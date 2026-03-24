@@ -5,17 +5,9 @@ import re
 import requests
 from bs4 import BeautifulSoup
 from langchain.tools import tool
-from langchain_community.tools import DuckDuckGoSearchRun
+from langchain_community.tools import DuckDuckGoSearchResults
 
-# Allowed recipe domains
-_ALLOWED_DOMAINS = [
-    "recetasderechupete.com",
-    "directoalpaladar.es",
-    "pequerecetas.es",
-]
-_SITE_FILTER = " OR ".join(f"site:{d}" for d in _ALLOWED_DOMAINS)
-
-_duckduckgo = DuckDuckGoSearchRun()
+_duckduckgo = DuckDuckGoSearchResults(output_format="list", num_results=5)
 
 _HEADERS = {
     "User-Agent": (
@@ -40,7 +32,13 @@ def web_search(query: str) -> str:
     last_exc = None
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
-            return _duckduckgo.run(f"{query} ({_SITE_FILTER})")
+            results = _duckduckgo.run(query)
+            if not results:
+                return "No results found."
+            return "\n".join(
+                f"- {r['title']}\n  URL: {r['link']}\n  {r['snippet']}"
+                for r in results
+            )
         except Exception as exc:
             last_exc = exc
     return f"Search failed after {_MAX_RETRIES} attempts: {last_exc}"

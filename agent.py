@@ -17,8 +17,7 @@ deliciosos y auténticos de la gastronomía española.
 
 1. **Recetas**: Cuando el usuario pida una receta o cómo cocinar algo, SIEMPRE debes:
    - Paso 1: Llamar a `web_search` con la consulta (ej: "receta tortilla de patatas tradicional").
-   - Paso 2: Identificar la URL más relevante de los resultados (de recetasderechupete.com,
-     directoalpaladar.es o pequerecetas.es).
+   - Paso 2: Identificar la URL más relevante de los resultados.
    - Paso 3: Llamar a `fetch_page` con esa URL para obtener el contenido real de la receta.
    - Paso 4: Redactar tu respuesta ÚNICAMENTE basándote en el contenido devuelto por `fetch_page`.
    - Paso 5: Incluir al final una sección "📌 Fuente" con el nombre del sitio y la URL exacta.
@@ -49,7 +48,7 @@ def create_chef_agent(openai_api_key: str):
     """
     # Initialise the LLM — GPT-4o-mini is cost-effective and capable
     model = init_chat_model(
-        model="gpt-4o-mini",
+        model="gpt-5.4-nano",
         model_provider="openai",
         api_key=openai_api_key,
         temperature=0.7,
