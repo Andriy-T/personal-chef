@@ -4,12 +4,19 @@
 
 import io
 import os
+from html import escape
+from uuid import uuid4
 
 import openai
 import streamlit as st
 from dotenv import load_dotenv
 
 from agent import create_chef_agent, stream_agent_response
+from providers import (
+    DEFAULT_OPENAI_MODEL, DEFAULT_ROUTER_MODEL, DEMO_SESSION_TURNS,
+    MAX_INPUT_CHARS, DemoBudget, ModelSettings, public_error,
+    EmptyResponseError, record_failure,
+)
 
 # Load .env for local development (no-op in production / Streamlit Cloud)
 load_dotenv()
@@ -29,7 +36,7 @@ st.markdown(
         /* Hide default Streamlit chrome */
         #MainMenu  { visibility: hidden; }
         footer     { visibility: hidden; }
-        header     { visibility: hidden; }
+        /* Keep header controls available so narrow screens can close the sidebar. */
 
         /* ── App header ── */
         .chef-header {
@@ -99,48 +106,78 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ── Sidebar — API Key ─────────────────────────────────────────────────────────
-# Prefer key from .env / environment; fall back to manual input in the sidebar.
-env_key = os.getenv("OPENAI_API_KEY", "")
+def server_setting(name, default=""):
+    value = os.getenv(name)
+    if value is not None:
+        return value.strip()
+    try:
+        return str(st.secrets.get(name, default)).strip()
+    except FileNotFoundError:
+        return default
+
+
+@st.cache_resource
+def demo_budget():
+    return DemoBudget()
+
+
+settings = None
+voice_key = ""
+st.session_state.setdefault("demo_turns", 0)
 
 with st.sidebar:
-    st.markdown("### 🔑 API Key")
-    if env_key:
-        st.success("API key loaded from environment.")
-        openai_key = env_key
+    st.markdown("### 🍳 Empieza a cocinar")
+    mode = st.radio("Acceso", ["Probar gratis", "Mi clave de OpenRouter", "Mi clave de OpenAI"])
+    if mode == "Probar gratis":
+        key = server_setting("OPENROUTER_API_KEY")
+        model_id = server_setting("OPENROUTER_DEMO_MODEL", DEFAULT_ROUTER_MODEL)
+        st.caption("Prueba por texto sin cuenta ni clave. Disponibilidad limitada.")
+        quota_label = st.empty()
+        quota_label.caption(f"{max(0, DEMO_SESSION_TURNS - st.session_state.demo_turns)} consultas disponibles en esta sesión.")
+        if key:
+            try:
+                settings = ModelSettings("openrouter", key, model_id, demo=True)
+            except ValueError:
+                st.warning("La configuración de la demo necesita revisión.")
+        else:
+            st.info("La demo aún no está activada. Puedes probar con tu propia clave.")
     else:
-        openai_key = st.text_input(
-            "OpenAI API Key",
-            type="password",
-            placeholder="sk-...",
-            help="Your key is used only in this session and never stored.",
-        )
-        st.markdown("[Get a free key](https://platform.openai.com/api-keys)")
-        st.markdown("---")
-        st.markdown(
-            "<small>Your key lives only in memory for this session and is never "
-            "stored or logged.</small>",
-            unsafe_allow_html=True,
-        )
+        provider = "openrouter" if mode == "Mi clave de OpenRouter" else "openai"
+        key = st.text_input("API key", type="password", key=f"key_{provider}").strip()
+        default_model = DEFAULT_ROUTER_MODEL if provider == "openrouter" else DEFAULT_OPENAI_MODEL
+        model_id = st.text_input("Modelo", value=default_model, key=f"model_{provider}").strip()
+        st.caption("Tu clave se mantiene en la memoria de esta sesión. Las llamadas se realizan desde el servidor y usan tu cuenta del proveedor.")
+        if provider == "openrouter":
+            st.markdown("[Crear clave de OpenRouter](https://openrouter.ai/settings/keys)")
+        if key and model_id:
+            settings = ModelSettings(provider, key, model_id)
+        if provider == "openai":
+            voice_key = key
 
-    if not openai_key:
-        st.info("Enter your OpenAI API key to start cooking.")
-        st.stop()
+    st.caption("Las consultas se envían al proveedor elegido; las búsquedas, a DuckDuckGo.")
+    if st.button("Nueva conversación"):
+        st.session_state.pop("agent_settings", None)
 
-# ── Session state — initialise agent and chat history ────────────────────────
-if "agent" not in st.session_state or st.session_state.get("agent_key") != openai_key:
-    # (Re-)create the agent whenever the key changes
-    st.session_state.agent = create_chef_agent(openai_key)
-    st.session_state.agent_key = openai_key
-    st.session_state.thread_id = "chef_session"
-    st.session_state.messages = []  # list of {"role": ..., "content": ...}
+# A different provider/model/key starts a fresh conversation. Demo quota survives.
+if st.session_state.get("agent_settings") != settings or "messages" not in st.session_state:
+    st.session_state.pop("agent", None)
+    st.session_state.agent_settings = settings
+    st.session_state.thread_id = str(uuid4())
+    st.session_state.messages = []
+    st.session_state.pop("_last_audio", None)
+
+if settings and "agent" not in st.session_state:
+    try:
+        st.session_state.agent = create_chef_agent(settings)
+    except Exception as exc:
+        st.error(public_error(exc))
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown(
     """
     <div class="chef-header">
         <h1>🍳 Personal Chef AI</h1>
-        <p>Your AI-powered kitchen companion — recipes, substitutions, and meal plans.</p>
+        <p>Tu compañero de cocina: recetas, sustituciones y menús semanales.</p>
     </div>
     <hr class="chef-divider">
     """,
@@ -148,8 +185,19 @@ st.markdown(
 )
 
 # ── Display chat history ──────────────────────────────────────────────────────
+def format_plan(items):
+    icons = {"pending": "⬜", "in_progress": "🔄", "completed": "✅"}
+    return "\n\n".join(
+        f"{icons.get(item.get('status'), '⬜')} {item.get('content', '')}"
+        for item in items
+    )
+
+
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
+        if message.get("plan"):
+            with st.expander("Plan de trabajo", expanded=False):
+                st.markdown(format_plan(message["plan"]))
         st.markdown(message["content"])
 
 # ── Starter hint when chat is empty ──────────────────────────────────────────
@@ -160,7 +208,7 @@ if not st.session_state.messages:
             <p>👋 ¡Hola! Soy tu chef personal. Prueba preguntándome:</p>
             <p><em>"¿Cómo hago una paella valenciana?"</em></p>
             <p><em>"¿Qué puedo usar como sustituto del pimentón?"</em></p>
-            <p><em>"Planifica una semana de comidas saludables para dos personas."</em></p>
+            <p><em>"Planifica cinco cenas vegetarianas para dos personas y reutiliza ingredientes."</em></p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -169,6 +217,14 @@ if not st.session_state.messages:
 # ── Tool label helper ─────────────────────────────────────────────────────────
 def _tool_label(tool_name: str, args: dict) -> str:
     """Return a human-readable HTML label for a tool call."""
+    args = {k: escape(str(v)) for k, v in args.items()}
+    tool_name = escape(tool_name)
+    if tool_name == "write_todos":
+        return "📋 Organizando el menú…"
+    if tool_name == "consolidate_shopping_list":
+        return "🛒 Sumando la lista de compra…"
+    if tool_name in {"write_file", "read_file", "edit_file", "ls", "glob", "grep"}:
+        return "📝 Consultando las notas de esta conversación…"
     if tool_name == "web_search":
         query = args.get("query", "")
         return f'🔍 Buscando: <em>"{query}"</em>'
@@ -193,20 +249,32 @@ def _transcribe(audio_bytes: bytes, api_key: str) -> str:
 
 
 # ── Inputs: text + audio ──────────────────────────────────────────────────────
-user_input = st.chat_input("Ask your chef anything…")
+ready = settings is not None and "agent" in st.session_state
+exhausted = bool(settings and settings.demo and st.session_state.demo_turns >= DEMO_SESSION_TURNS)
+user_input = st.chat_input("¿Qué te apetece cocinar?", disabled=not ready or exhausted, max_chars=MAX_INPUT_CHARS)
+if exhausted:
+    st.info("Has terminado las consultas de prueba de esta sesión. Puedes continuar con tu propia clave.")
 
 # Audio recorder — appears below the chat bar
-audio_value = st.audio_input("🎤 Or record your question", key="audio_recorder")
+audio_value = st.audio_input("🎤 Graba tu pregunta", key="audio_recorder", disabled=not ready or not voice_key)
+if not voice_key:
+    st.caption("La entrada por voz está disponible con tu propia clave de OpenAI.")
 
-if audio_value and audio_value != st.session_state.get("_last_audio"):
+if ready and voice_key and audio_value and audio_value != st.session_state.get("_last_audio"):
     st.session_state["_last_audio"] = audio_value
     with st.spinner("Transcribing…"):
         try:
-            user_input = _transcribe(audio_value.read(), openai_key)
-        except Exception as e:
-            st.error(f"Transcription failed: {e}")
+            user_input = _transcribe(audio_value.read(), voice_key)
+        except Exception as exc:
+            st.error(public_error(exc))
 
-if user_input:
+if user_input and ready and not exhausted:
+    if len(user_input) > MAX_INPUT_CHARS:
+        st.warning(f"Usa una pregunta de hasta {MAX_INPUT_CHARS} caracteres.")
+        st.stop()
+    if settings.demo:
+        st.session_state.demo_turns += 1
+        quota_label.caption(f"{max(0, DEMO_SESSION_TURNS - st.session_state.demo_turns)} consultas disponibles en esta sesión.")
     # Show the user's message immediately
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
@@ -215,8 +283,11 @@ if user_input:
     # Stream the agent's response
     with st.chat_message("assistant"):
         tool_slot = st.empty()   # spinner / tool status
+        plan_slot = st.empty()
         text_slot = st.empty()   # streaming text
         response_text = ""
+        plan_items = []
+        stage = "model"
 
         # Show initial "thinking" indicator immediately
         tool_slot.markdown(
@@ -231,11 +302,16 @@ if user_input:
                 st.session_state.agent,
                 user_input,
                 st.session_state.thread_id,
+                callbacks=[demo_budget()] if settings.demo else [],
             ):
                 kind = event[0]
 
-                if kind == "tool_start":
+                if kind == "plan":
+                    plan_items = event[1]
+                    plan_slot.markdown("**Plan de trabajo**\n\n" + format_plan(plan_items))
+                elif kind == "tool_start":
                     _, tool_name, tool_args = event
+                    stage = tool_name
                     label = _tool_label(tool_name, tool_args)
                     tool_slot.markdown(
                         f'<div class="tool-indicator">'
@@ -246,27 +322,35 @@ if user_input:
 
                 elif kind == "tool_end":
                     # Keep spinner visible until text starts flowing
-                    pass
+                    stage = "model_after_tool"
 
                 elif kind == "text":
+                    stage = "response"
                     tool_slot.empty()  # hide spinner once text arrives
                     response_text += event[1]
                     text_slot.markdown(response_text + "▌")
 
             # Finalise — remove typing cursor
+            if not response_text.strip():
+                raise EmptyResponseError()
             text_slot.markdown(response_text)
             tool_slot.empty()
 
         except Exception as e:
             tool_slot.empty()
-            error_msg = (
-                "⚠️ Something went wrong. Please check your API key and try again.\n\n"
-                f"*Error: {e}*"
-            )
-            text_slot.markdown(error_msg)
-            response_text = error_msg
+            reference = record_failure(e, settings.provider, settings.model, stage)
+            error_msg = "⚠️ " + public_error(e)
+            error_msg += f"\n\nReferencia: `{reference}`."
+            error_msg += "\n\nLa próxima consulta empezará con un contexto nuevo."
+            # Drop potentially incomplete tool-call history after an interrupted run.
+            st.session_state.pop("agent", None)
+            if response_text.strip():
+                response_text = "**Respuesta incompleta; no se ha terminado de verificar.**\n\n" + response_text + "\n\n---\n\n" + error_msg
+            else:
+                response_text = error_msg
+            text_slot.markdown(response_text)
 
     # Save the assistant reply to history
     st.session_state.messages.append(
-        {"role": "assistant", "content": response_text}
+        {"role": "assistant", "content": response_text, "plan": plan_items}
     )

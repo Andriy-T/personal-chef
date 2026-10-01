@@ -1,9 +1,12 @@
 openai>=1.0.0
-langchain>=0.3.0
-langchain-openai>=0.2.0
+deepagents==0.7.19
+langchain==1.4.2
+langchain-openai>=1.1.12,<2
+langchain-openrouter==0.2.9
+openrouter==0.11.46
 langchain-community>=0.3.0
-langgraph>=0.2.0
-streamlit>=1.38.0
+langgraph==1.2.12
+streamlit>=1.55.0,<2
 python-dotenv>=1.0.0
 duckduckgo-search>=6.0.0
 ddgs

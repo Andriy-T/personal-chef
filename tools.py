@@ -2,6 +2,7 @@
 # Each tool is clearly named to showcase LangChain agent tool-use.
 
 import re
+import json
 import requests
 from bs4 import BeautifulSoup
 from langchain.tools import tool
@@ -20,6 +21,57 @@ _MAX_CHARS = 6000  # keep context manageable
 _MAX_RETRIES = 3
 
 
+def extract_recipe_text(html: str) -> str:
+    """Prefer publisher recipe metadata; fallback to the main article text."""
+    soup = BeautifulSoup(html, "html.parser")
+
+    def instructions(value):
+        if isinstance(value, str):
+            yield BeautifulSoup(value, "html.parser").get_text(" ", strip=True)
+        elif isinstance(value, list):
+            for item in value:
+                yield from instructions(item)
+        elif isinstance(value, dict):
+            if value.get("text"):
+                yield from instructions(value["text"])
+            elif value.get("name"):
+                yield from instructions(value["name"])
+            if value.get("itemListElement"):
+                yield from instructions(value["itemListElement"])
+
+    def recipes(value):
+        if isinstance(value, list):
+            for item in value:
+                yield from recipes(item)
+        elif isinstance(value, dict):
+            types = value.get("@type", [])
+            types = [types] if isinstance(types, str) else types
+            if not isinstance(types, list):
+                types = []
+            if "Recipe" in types:
+                yield value
+            if "@graph" in value:
+                yield from recipes(value["@graph"])
+
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string or script.get_text())
+        except (ValueError, TypeError):
+            continue
+        for recipe in recipes(data):
+            if recipe.get("recipeIngredient") and recipe.get("recipeInstructions"):
+                fields = {key: recipe[key] for key in (
+                    "name", "recipeYield", "prepTime", "cookTime", "totalTime",
+                    "recipeIngredient", "recipeInstructions",
+                ) if key in recipe}
+                fields["recipeInstructions"] = list(instructions(recipe["recipeInstructions"]))
+                return json.dumps(fields, ensure_ascii=False)[:_MAX_CHARS]
+    for tag in soup(["script", "style", "nav", "footer", "aside", "header", "form"]):
+        tag.decompose()
+    content = soup.find("article") or soup.find("main") or soup
+    return re.sub(r"\n{3,}", "\n\n", content.get_text(separator="\n")).strip()[:_MAX_CHARS]
+
+
 @tool
 def web_search(query: str) -> str:
     """Search the web for recipes, cooking techniques, or food information.
@@ -36,7 +88,7 @@ def web_search(query: str) -> str:
             if not results:
                 return "No results found."
             return "\n".join(
-                f"- {r['title']}\n  URL: {r['link']}\n  {r['snippet']}"
+                f"- {r['title'][:180]}\n  URL: {r['link']}\n  {r['snippet'][:400]}"
                 for r in results
             )
         except Exception as exc:
@@ -64,16 +116,7 @@ def fetch_page(url: str) -> str:
             if attempt == _MAX_RETRIES:
                 return f"Error fetching page after {_MAX_RETRIES} attempts: {last_exc}"
 
-    soup = BeautifulSoup(resp.text, "html.parser")
-
-    # Remove nav, ads, scripts, styles
-    for tag in soup(["script", "style", "nav", "footer", "aside", "header", "form"]):
-        tag.decompose()
-
-    text = soup.get_text(separator="\n")
-    # Collapse blank lines
-    text = re.sub(r"\n{3,}", "\n\n", text).strip()
-    return text[:_MAX_CHARS]
+    return extract_recipe_text(resp.text)
 
 
 @tool
